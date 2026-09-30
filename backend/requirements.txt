@@ -1,0 +1,37 @@
+# Web framework
+fastapi==0.111.0
+
+# ASGI server that runs the FastAPI app
+uvicorn==0.29.0
+
+# Reads settings from .env files into Python objects
+pydantic-settings==2.2.1
+
+# Lets pydantic-settings and other libs read .env files
+python-dotenv==1.0.1
+
+# Parses multipart/form-data so FastAPI can receive uploaded files
+python-multipart==0.0.32
+
+# Extracts text from PDF files page by page
+pdfplumber==0.11.0
+
+# Test runner
+pytest==8.2.0
+
+# HTTP client used by pytest to call FastAPI without a real server
+httpx==0.27.0
+
+# Lets tests create real in-memory PDF bytes without committing binary files
+reportlab==4.2.2
+
+# Official Groq Python SDK — wraps the Groq chat completion REST API
+groq==0.9.0
+
+# Rate limiting middleware for FastAPI — limits requests per IP per time window
+slowapi==0.1.9
+
+# Makes Python use the OS / system certificate store instead of its own bundled
+# CA bundle. Fixes CERTIFICATE_VERIFY_FAILED when a corporate antivirus or proxy
+# (e.g. Avast, Zscaler) intercepts HTTPS with its own certificate.
+truststore==0.9.1

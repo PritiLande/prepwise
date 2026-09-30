@@ -1,0 +1,19 @@
+# Python virtual environment — never commit this, it's huge and machine-specific
+.venv/
+
+# Real secrets live here — never commit this
+.env
+
+# Python bytecode cache — auto-generated, not needed in git
+__pycache__/
+*.py[cod]
+
+# Node.js dependencies (for the frontend in later phases)
+node_modules/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+backend/*.pdf
+backend/jd.txt
