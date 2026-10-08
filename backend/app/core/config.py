@@ -53,10 +53,16 @@ class Settings(BaseSettings):
     # How many extra attempts after the first failure before raising an error.
     LLM_MAX_RETRIES: int = 2
 
-    # Maximum tokens for the LLM completion (reasoning + reply combined).
-    # Some models spend many tokens on internal chain-of-thought reasoning
-    # before producing visible output, so this must be generous.
+    # Maximum tokens for the LLM completion output.
+    # For gpt-oss reasoning models this is max_completion_tokens, not max_tokens.
+    # The default of 1024 in the Groq docs is too low for our 10-question JSON.
     LLM_MAX_TOKENS: int = 8192
+
+    # Controls how many reasoning tokens gpt-oss-20b spends before answering.
+    # Allowed values for gpt-oss-20b/120b: "low", "medium", "high"
+    # "low" uses fewer reasoning tokens, leaving more budget for the JSON reply.
+    # Use "medium" or "high" only if quality is insufficient.
+    LLM_REASONING_EFFORT: str = "low"
 
     # -----------------------------------------------------------------------
     # Rate limiting
@@ -65,6 +71,34 @@ class Settings(BaseSettings):
     # How many calls one IP address can make to POST /analyze per minute.
     # Keeps Groq free-tier costs predictable and prevents abuse.
     RATE_LIMIT_ANALYZE: str = "5/minute"
+
+    # -----------------------------------------------------------------------
+    # Supabase / database
+    # -----------------------------------------------------------------------
+
+    # Project URL from Supabase dashboard → Settings → General.
+    SUPABASE_URL: str = ""
+
+    # Anon/publishable key from Supabase dashboard → Settings → API Keys.
+    # Safe to use in the backend — RLS policies enforce data access rules.
+    SUPABASE_KEY: str = ""
+
+    # How long (seconds) to cache the JWKS public keys in memory.
+    # Set lower (e.g. 300) in development; 3600 is fine for production.
+    JWKS_CACHE_TTL_SECONDS: int = 3600
+
+    # -----------------------------------------------------------------------
+    # CORS
+    # -----------------------------------------------------------------------
+
+    # Which browser origins are allowed to call this API.
+    # CORS (Cross-Origin Resource Sharing) is a browser security rule: a page
+    # at http://localhost:5173 is not allowed to call http://localhost:8000
+    # unless the server explicitly says "I trust that origin."
+    # We never use "*" because that would allow any website on the internet
+    # to call our API using the visitor's credentials.
+    # Multiple origins can be comma-separated: http://localhost:5173,https://myprod.com
+    ALLOWED_ORIGINS: str = "http://localhost:5173"
 
     # Set to true if your machine's antivirus or corporate proxy intercepts
     # HTTPS and presents its own certificate (e.g. Avast, Zscaler, Fiddler).

@@ -47,8 +47,16 @@ VALID_REPLY = json.dumps({
         "Add 'pytest' to your skills section — your resume mentions 33 automated tests."
     ],
     "questions": [
-        {"question": f"Q{i}?", "category": "technical", "answer_outline": f"A{i}"}
-        for i in range(1, 11)   # exactly 10 questions
+        {
+            "question": f"Q{i}?",
+            "category": "technical",
+            # Each outline is ≥80 chars to satisfy the answer_outline validator.
+            "answer_outline": (
+                f"This question covers topic {i} from the candidate's resume. "
+                f"In the relevant project, Python and FastAPI were used to build the backend service."
+            ),
+        }
+        for i in range(1, 11)
     ],
 })
 
@@ -185,7 +193,14 @@ def test_analyze_rejects_fewer_than_10_questions(monkeypatch):
     nine_q_reply = json.dumps({
         **json.loads(VALID_REPLY),
         "questions": [
-            {"question": f"Q{i}?", "category": "technical", "answer_outline": f"A{i}"}
+            {
+                "question": f"Q{i}?",
+                "category": "technical",
+                "answer_outline": (
+                    f"This is question {i} about the candidate's Python experience. "
+                    f"They built a FastAPI service with PostgreSQL in their backend project."
+                ),
+            }
             for i in range(1, 10)   # only 9
         ],
     })
@@ -284,7 +299,14 @@ def test_analyze_wording_tips_defaults_to_empty(monkeypatch):
         ],
         # resume_wording_tips intentionally absent
         "questions": [
-            {"question": f"Q{i}?", "category": "technical", "answer_outline": f"A{i}"}
+            {
+                "question": f"Q{i}?",
+                "category": "technical",
+                "answer_outline": (
+                    f"This is question {i} about the candidate's Python experience. "
+                    f"They built a FastAPI service with PostgreSQL in their backend project."
+                ),
+            }
             for i in range(1, 11)
         ],
     })
@@ -294,3 +316,129 @@ def test_analyze_wording_tips_defaults_to_empty(monkeypatch):
 
     # Must not raise — must default to empty list
     assert result.resume_wording_tips == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for empty-content / finish_reason=length handling
+# ---------------------------------------------------------------------------
+
+def test_analyze_raises_on_empty_content_after_all_retries(monkeypatch):
+    """
+    When Groq returns empty content every time (finish_reason=length),
+    analyze() must raise LLMInvalidOutputError after all retries.
+    """
+    _with_key(monkeypatch)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_MAX_RETRIES", 1)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_REASONING_EFFORT", "low")
+
+    # _call_groq raises LLMInvalidOutputError when content is empty
+    mock_call = MagicMock(
+        side_effect=LLMInvalidOutputError(
+            "Groq returned empty content (finish_reason='length')"
+        )
+    )
+    with patch("app.services.llm_service._call_groq", mock_call):
+        with pytest.raises(LLMInvalidOutputError) as exc_info:
+            analyze(RESUME, JD, CO)
+
+    # The error message must name finish_reason so the operator knows what happened
+    assert "empty content" in str(exc_info.value).lower() or \
+           "invalid" in str(exc_info.value).lower()
+
+
+def test_analyze_escalates_reasoning_effort_on_empty_content(monkeypatch):
+    """
+    When the first attempt returns empty content (finish_reason=length),
+    analyze() must retry with reasoning_effort="medium" instead of "low".
+
+    We verify this by inspecting the effort argument passed to _call_groq
+    on the second call.
+    """
+    _with_key(monkeypatch)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_MAX_RETRIES", 1)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_REASONING_EFFORT", "low")
+
+    # First call: raises empty-content error. Second call: returns valid JSON.
+    call_efforts = []
+
+    def fake_call_groq(client, user_prompt, reasoning_effort):
+        call_efforts.append(reasoning_effort)
+        if len(call_efforts) == 1:
+            raise LLMInvalidOutputError(
+                "Groq returned empty content (finish_reason='length')"
+            )
+        return VALID_REPLY
+
+    with patch("app.services.llm_service._call_groq", side_effect=fake_call_groq):
+        result = analyze(RESUME, JD, CO)
+
+    assert result.match_score == 72
+    assert call_efforts[0] == "low"    # first attempt uses configured effort
+    assert call_efforts[1] == "medium" # retry escalates
+
+
+def test_analyze_reasoning_effort_passed_to_call_groq(monkeypatch):
+    """
+    The reasoning_effort from settings must be forwarded to _call_groq
+    on the first attempt.
+    """
+    _with_key(monkeypatch)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_REASONING_EFFORT", "high")
+
+    captured = []
+
+    def fake_call_groq(client, user_prompt, reasoning_effort):
+        captured.append(reasoning_effort)
+        return VALID_REPLY
+
+    with patch("app.services.llm_service._call_groq", side_effect=fake_call_groq):
+        analyze(RESUME, JD, CO)
+
+    assert captured[0] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Tests for answer_outline length validator
+# ---------------------------------------------------------------------------
+
+def test_analyze_rejects_short_answer_outlines(monkeypatch):
+    """
+    If the LLM returns questions with answer_outlines shorter than 80 chars,
+    Pydantic validation must fail and the retry loop must eventually raise
+    LLMInvalidOutputError.
+    """
+    _with_key(monkeypatch)
+    monkeypatch.setattr("app.services.llm_service.settings.LLM_MAX_RETRIES", 0)
+
+    short_outline_reply = json.dumps({
+        "match_score": 65,
+        "matched_skills": ["Python"],
+        "skill_gaps": [{"skill": "Docker", "tip": "Learn Docker basics."}],
+        "resume_wording_tips": [],
+        "questions": [
+            # "Too short." is 10 chars — well below the 80-char minimum
+            {"question": f"Q{i}?", "category": "technical", "answer_outline": "Too short."}
+            for i in range(1, 11)
+        ],
+    })
+
+    with patch("app.services.llm_service._call_groq", return_value=short_outline_reply):
+        with pytest.raises(LLMInvalidOutputError):
+            analyze(RESUME, JD, CO)
+
+
+def test_analyze_accepts_long_enough_answer_outlines(monkeypatch):
+    """
+    Questions with answer_outlines of 80+ chars must pass validation.
+    """
+    _with_key(monkeypatch)
+
+    # VALID_REPLY already has long outlines — reuse it
+    with patch("app.services.llm_service._call_groq", return_value=VALID_REPLY):
+        result = analyze(RESUME, JD, CO)
+
+    # All 10 outlines must be present and long enough
+    for q in result.questions:
+        assert len(q.answer_outline.strip()) >= 80, (
+            f"answer_outline too short: {len(q.answer_outline)} chars"
+        )

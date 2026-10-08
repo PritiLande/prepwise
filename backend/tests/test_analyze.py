@@ -25,6 +25,8 @@ from reportlab.pdfgen import canvas
 
 from app.main import app
 from app.core.limiter import limiter
+from app.core.supabase_client import get_supabase
+from app.dependencies.auth import get_optional_user
 from app.schemas.analysis import AnalysisResult
 from app.services.llm_service import (
     LLMInvalidOutputError,
@@ -34,6 +36,13 @@ from app.services.llm_service import (
     LLMTimeoutError,
 )
 from app.services.pdf_service import PDFNoTextError, PDFParseError
+
+# Override Supabase and auth dependencies for ALL tests in this file.
+# The existing 12 tests are unauthenticated so current_user must be None.
+# get_supabase returns a MagicMock so no real DB connection is attempted.
+_mock_supabase = MagicMock()
+app.dependency_overrides[get_supabase] = lambda: _mock_supabase
+app.dependency_overrides[get_optional_user] = lambda: None   # no auth by default
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -72,7 +81,14 @@ MOCK_RESULT = AnalysisResult(
     ],
     resume_wording_tips=["Add 'pytest' to your skills section."],
     questions=[
-        {"question": f"Q{i}?", "category": "technical", "answer_outline": f"A{i}"}
+        {
+            "question": f"Q{i}?",
+            "category": "technical",
+            "answer_outline": (
+                f"This question covers topic {i} from the candidate's resume. "
+                f"In the relevant project, Python and FastAPI were used to build the backend."
+            ),
+        }
         for i in range(1, 11)
     ],
 )
@@ -294,3 +310,156 @@ def test_analyze_rate_limit_returns_429(monkeypatch):
         # Second request — must be rejected
         r2 = _post(pdf)
         assert r2.status_code == 429
+
+# ---------------------------------------------------------------------------
+# Phase 6 additions — DB save behaviour
+# ---------------------------------------------------------------------------
+
+def test_analyze_saves_to_db_when_user_is_authenticated():
+    """
+    When a valid user is injected, save_analysis must be called once
+    with the correct user_id and user_token after a successful analysis.
+    resume_text and job_description must NOT be passed to save_analysis.
+    """
+    from app.dependencies.auth import get_optional_user as _opt
+
+    app.dependency_overrides[_opt] = lambda: {"sub": "user-uuid-abc", "_token": "fake.jwt.token"}
+
+    with patch("app.api.routes.analyze.parse_resume", return_value=MOCK_PARSED), \
+         patch("app.api.routes.analyze.analyze", return_value=MOCK_RESULT), \
+         patch("app.api.routes.analyze.save_analysis") as mock_save:
+
+        response = _post(_make_pdf())
+
+    assert response.status_code == 200
+    mock_save.assert_called_once()
+    call_kwargs = mock_save.call_args.kwargs
+    assert call_kwargs["user_id"]    == "user-uuid-abc"
+    assert call_kwargs["user_token"] == "fake.jwt.token"
+    # Privacy: these must not be forwarded to the DB layer any more
+    assert "resume_text"     not in call_kwargs
+    assert "job_description" not in call_kwargs
+
+    app.dependency_overrides[_opt] = lambda: None
+
+
+def test_analyze_returns_result_even_if_db_save_fails():
+    """
+    If save_analysis raises DBSaveError, the /analyze route must still
+    return 200 — the user already has their result.
+    """
+    from app.dependencies.auth import get_optional_user as _opt
+    from app.services.db_service import DBSaveError
+
+    app.dependency_overrides[_opt] = lambda: {"sub": "user-uuid-abc", "_token": "fake.jwt.token"}
+
+    with patch("app.api.routes.analyze.parse_resume", return_value=MOCK_PARSED), \
+         patch("app.api.routes.analyze.analyze", return_value=MOCK_RESULT), \
+         patch("app.api.routes.analyze.save_analysis", side_effect=DBSaveError("fail")):
+
+        response = _post(_make_pdf())
+
+    assert response.status_code == 200
+
+    app.dependency_overrides[_opt] = lambda: None
+
+
+def test_analyze_does_not_call_save_when_unauthenticated():
+    """
+    When no token is provided (current_user is None), save_analysis must
+    never be called — unauthenticated analyses are not persisted.
+    """
+    # Default override already sets current_user to None (see top of file)
+    with patch("app.api.routes.analyze.parse_resume", return_value=MOCK_PARSED), \
+         patch("app.api.routes.analyze.analyze", return_value=MOCK_RESULT), \
+         patch("app.api.routes.analyze.save_analysis") as mock_save:
+
+        response = _post(_make_pdf())
+
+    assert response.status_code == 200
+    mock_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test: create_client raises → /analyze still returns 200
+# ---------------------------------------------------------------------------
+
+def test_analyze_returns_200_when_supabase_client_creation_fails():
+    """
+    If create_client() raises (e.g. Invalid API key), get_supabase() returns
+    None.  The route must still return 200 with the full analysis result.
+    """
+    from app.dependencies.auth import get_optional_user as _opt
+    from app.core.supabase_client import get_supabase as _get_sb
+
+    app.dependency_overrides[_opt] = lambda: {"sub": "user-uuid-abc", "_token": "fake.jwt.token"}
+    app.dependency_overrides[_get_sb] = lambda: None
+
+    with patch("app.api.routes.analyze.parse_resume", return_value=MOCK_PARSED), \
+         patch("app.api.routes.analyze.analyze", return_value=MOCK_RESULT), \
+         patch("app.api.routes.analyze.save_analysis") as mock_save:
+
+        response = _post(_make_pdf())
+
+    assert response.status_code == 200
+    assert response.json()["match_score"] == 75
+    mock_save.assert_not_called()
+
+    app.dependency_overrides[_opt] = lambda: None
+    app.dependency_overrides[_get_sb] = lambda: _mock_supabase
+
+
+# ---------------------------------------------------------------------------
+# JWKS failure with optional auth — must still return 200
+# ---------------------------------------------------------------------------
+
+def test_analyze_returns_200_when_jwks_unavailable_with_token():
+    """
+    When a token IS present but the JWKS endpoint is unreachable (503),
+    POST /analyze must still return 200 with the full analysis result.
+
+    WHY: The user sent a valid-looking token but our auth service is down.
+    They should not lose their analysis because of our infrastructure problem.
+    get_optional_user catches the 503 from _decode_token and returns None,
+    so the route runs as unauthenticated — analysis returned, DB save skipped.
+
+    Contrast with GET /analyses (get_current_user): that correctly returns 503
+    because history is personal data and we cannot skip authentication there.
+
+    We test this by letting the real get_optional_user run (not overriding it)
+    while patching _decode_token to raise a 503 — exactly what happens when
+    _get_public_key raises RuntimeError during a real JWKS outage.
+    """
+    from fastapi import HTTPException, status
+    from app.dependencies.auth import get_optional_user as _opt
+
+    # Remove the module-level override so the REAL get_optional_user runs
+    app.dependency_overrides.pop(_opt, None)
+
+    with patch("app.api.routes.analyze.parse_resume", return_value=MOCK_PARSED), \
+         patch("app.api.routes.analyze.analyze", return_value=MOCK_RESULT), \
+         patch("app.api.routes.analyze.save_analysis") as mock_save, \
+         patch("app.dependencies.auth._decode_token",
+               side_effect=HTTPException(
+                   status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                   detail="Authentication service temporarily unavailable.",
+               )):
+
+        # Send request WITH an Authorization header so get_optional_user
+        # actually calls _decode_token (without a header it returns None immediately)
+        response = client.post(
+            "/analyze",
+            files={"resume": ("resume.pdf", _make_pdf(), "application/pdf")},
+            data=GOOD_FIELDS,
+            headers={"Authorization": "Bearer fake.token.string"},
+        )
+
+    # Must return 200 — the analysis is not lost
+    assert response.status_code == 200
+    assert response.json()["match_score"] == 75
+
+    # DB save must NOT be attempted — we have no verified user identity
+    mock_save.assert_not_called()
+
+    # Restore the module-level default (no auth)
+    app.dependency_overrides[_opt] = lambda: None

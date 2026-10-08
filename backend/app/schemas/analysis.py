@@ -27,8 +27,35 @@ class InterviewQuestion(BaseModel):
         description="Type of question."
     )
     answer_outline: str = Field(
-        description="Short bullet outline drawn only from facts in the resume."
+        description=(
+            "Honest outline drawn only from facts in the resume. "
+            "Must be at least two sentences (minimum 80 characters)."
+        )
     )
+
+    @field_validator("answer_outline")
+    @classmethod
+    def answer_outline_must_be_substantive(cls, v: str) -> str:
+        """
+        Reject empty or very short answer outlines.
+
+        WHY 80 characters?
+          A useful outline must have at least two real sentences. A single
+          short sentence like "I have experience." is 24 chars and useless.
+          80 chars is roughly "This project used FastAPI. I built the auth
+          layer with JWT tokens." — the minimum useful content.
+          The LLM is instructed to write at least two sentences; this validator
+          enforces that contract so the retry loop catches lazy responses.
+        """
+        stripped = v.strip()
+        if len(stripped) < 80:
+            raise ValueError(
+                f"answer_outline is too short ({len(stripped)} chars). "
+                f"Must be at least 80 characters (roughly two sentences). "
+                f"Gap questions must admit the gap and bridge to resume experience. "
+                f"Matched-skill questions must name the specific project and detail."
+            )
+        return stripped
 
 
 class AnalysisResult(BaseModel):
@@ -36,8 +63,8 @@ class AnalysisResult(BaseModel):
     The complete analysis returned by the LLM and validated by Pydantic.
 
     Pydantic will raise a ValidationError if the LLM returns the wrong types,
-    a score outside 0-100, or fewer than 10 questions — we catch that in the
-    service and retry.
+    a score outside 0-100, fewer than 10 questions, or a too-short
+    answer_outline — we catch that in the service and retry.
     """
 
     match_score: int = Field(

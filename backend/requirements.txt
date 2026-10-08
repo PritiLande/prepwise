@@ -28,6 +28,20 @@ reportlab==4.2.2
 # Official Groq Python SDK — wraps the Groq chat completion REST API
 groq==0.9.0
 
+# Supabase Python client — talks to the Supabase REST and Auth APIs
+# 2.15.0+ supports the new sb_publishable_ key format introduced by Supabase in 2025
+supabase==2.15.0
+
+# Decodes and verifies Supabase JWT tokens in the Authorization header.
+# Using PyJWT instead of python-jose because python-jose 3.3.0 has three
+# unfixed CVEs (CVE-2024-33663 algorithm confusion, CVE-2024-33664 JWT bomb,
+# CVE-2025-61152 alg=none bypass). PyJWT is actively maintained and
+# CVE-equivalent issues were fixed in 2.13.0.
+PyJWT==2.15.1
+
+# Required by PyJWT for EC (ES256) key operations
+cryptography==42.0.8
+
 # Rate limiting middleware for FastAPI — limits requests per IP per time window
 slowapi==0.1.9
 

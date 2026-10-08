@@ -24,15 +24,27 @@ ERROR MAPPING
   502  LLM returned invalid output after all retries
   504  LLM timed out or network failure
 
+DB SAVE POLICY
+  If the Supabase client is None (key invalid / not configured) OR if
+  save_analysis() raises for any reason, the error is swallowed and the
+  analysis result is still returned with 200.  The user already waited up
+  to a minute — a DB hiccup must never cost them their result.
+
 PRIVACY
   Never log resume text, JD text, or the API key.
 """
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+import logging
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from supabase import Client
 
 from app.core.config import settings
 from app.core.limiter import limiter
+from app.core.supabase_client import get_supabase
+from app.dependencies.auth import get_optional_user
 from app.schemas.analysis import AnalysisResult
+from app.services.db_service import DBSaveError, save_analysis
 from app.services.llm_service import (
     LLMInvalidOutputError,
     LLMMissingKeyError,
@@ -48,8 +60,8 @@ from app.services.pdf_service import (
     parse_resume,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["analyze"])
-
 _BYTES_PER_MB = 1024 * 1024
 
 
@@ -60,6 +72,11 @@ async def analyze_endpoint(
     resume: UploadFile = File(..., description="Resume PDF, max 5 MB."),
     job_description: str = Form(..., description="Job description text."),
     company_name: str = Form(..., description="Company name (1-100 characters)."),
+    # Optional — None if no Authorization header is sent.
+    # Authenticated users get their analysis saved automatically.
+    current_user: dict | None = Depends(get_optional_user),
+    # None when Supabase client creation fails — handled safely below.
+    supabase: Client | None = Depends(get_supabase),
 ):
     """
     Accept a resume PDF, a job description, and a company name.
@@ -139,7 +156,7 @@ async def analyze_endpoint(
         resume_text = resume_text[: settings.MAX_RESUME_CHARS]
 
     # ------------------------------------------------------------------ #
-    # 6. Call LLM — map every service exception to a clean HTTP response  #
+    # 6. Call LLM                                                          #
     # ------------------------------------------------------------------ #
     # NOTE: resume_text, job_description, and company_name are NOT logged.
     try:
@@ -149,7 +166,6 @@ async def analyze_endpoint(
             company_name=company_name,
         )
     except (LLMMissingKeyError, LLMModelError):
-        # Server misconfiguration — safe message, nothing internal exposed.
         raise HTTPException(
             status_code=500,
             detail="The AI service is not configured correctly. "
@@ -171,5 +187,29 @@ async def analyze_endpoint(
             detail="The AI service returned an unexpected response. "
                    "Please try again.",
         )
+
+    # ------------------------------------------------------------------ #
+    # 7. Optionally save to database                                       #
+    # ------------------------------------------------------------------ #
+    # We only attempt the save when:
+    #   a) the user is authenticated (current_user is not None), AND
+    #   b) the Supabase client was created successfully (supabase is not None).
+    #
+    # Any failure — client creation error, network error, RLS rejection,
+    # invalid key — is caught here and logged without secrets.
+    # The analysis result is ALWAYS returned regardless.
+    if current_user is not None and supabase is not None:
+        try:
+            save_analysis(
+                supabase=supabase,
+                user_id=current_user["sub"],
+                user_token=current_user["_token"],
+                company_name=company_name,
+                result=result,
+            )
+        except DBSaveError as exc:
+            logger.error("DB save failed (%s). Result still returned.", type(exc).__name__)
+        except Exception as exc:
+            logger.error("Unexpected DB error (%s). Result still returned.", type(exc).__name__)
 
     return result
