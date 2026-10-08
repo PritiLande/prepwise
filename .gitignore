@@ -11,6 +11,9 @@ __pycache__/
 # Node.js dependencies (for the frontend in later phases)
 node_modules/
 
+# Production build output
+dist/
+
 # OS junk
 .DS_Store
 Thumbs.db
