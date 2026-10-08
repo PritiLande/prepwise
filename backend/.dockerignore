@@ -1,0 +1,19 @@
+# Never copy the virtual environment — the Dockerfile installs packages fresh.
+.venv/
+
+# Never copy .env — secrets are passed as environment variables in Docker.
+.env
+
+# Test files and fixtures are not needed at runtime.
+tests/
+
+# Python bytecode cache — auto-generated, not source code.
+__pycache__/
+*.py[cod]
+
+# pytest cache
+.pytest_cache/
+
+# Editor files
+.vscode/
+*.swp

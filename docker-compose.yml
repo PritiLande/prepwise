@@ -1,0 +1,88 @@
+# docker-compose.yml — defines and wires up all services.
+#
+# WHY docker-compose?
+#   Running two containers (backend + frontend) by hand means typing long
+#   "docker run" commands every time. docker-compose lets us define both
+#   services in one file and start everything with one command:
+#     docker compose up --build
+#
+# HOW IT WORKS:
+#   - 'backend' runs the FastAPI server on port 8000.
+#   - 'frontend' builds the React app and serves it via nginx on port 80.
+#   - Both read secrets from the .env file at the project root.
+#   - 'depends_on' makes Docker start backend before frontend.
+#   - They communicate over a private Docker network called 'prepwise-net'.
+
+services:
+
+  # ── Backend (FastAPI) ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend          # look for Dockerfile here
+      dockerfile: Dockerfile
+    ports:
+      # "host_port:container_port"
+      # Map port 8000 on your machine to port 8000 inside the container.
+      - "8000:8000"
+    environment:
+      # Pass every backend secret from .env as environment variables.
+      # The container never has the .env file — variables are injected directly.
+      # ${VAR} syntax reads the value from the .env file at compose time.
+      - APP_NAME=${APP_NAME}
+      - DEBUG=${DEBUG}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB}
+      - MAX_RESUME_CHARS=${MAX_RESUME_CHARS}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL}
+      - MAX_JD_CHARS=${MAX_JD_CHARS}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
+      - RATE_LIMIT_ANALYZE=${RATE_LIMIT_ANALYZE}
+      # When running in Docker, the frontend is on port 80, not 5173.
+      - ALLOWED_ORIGINS=http://localhost:80,http://localhost
+      - USE_SYSTEM_CERTS=false
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+    networks:
+      - prepwise-net
+    # Restart the container automatically if it crashes (e.g. after a reboot).
+    restart: unless-stopped
+    healthcheck:
+      # Docker will call GET /health every 30s to confirm the backend is alive.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Frontend (nginx serving the React build) ─────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # VITE_* variables are baked into the JS bundle at build time.
+      # They must be passed as build args — runtime env vars don't work
+      # for Vite because the JS is already compiled when nginx serves it.
+      args:
+        - VITE_API_URL=http://localhost:8000
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy   # wait for backend healthcheck to pass
+    networks:
+      - prepwise-net
+    restart: unless-stopped
+
+# ── Shared network ───────────────────────────────────────────────────
+# A private Docker network so the two containers can talk to each other
+# by service name (e.g. http://backend:8000) without exposing ports
+# beyond what we explicitly map above.
+networks:
+  prepwise-net:
+    driver: bridge
