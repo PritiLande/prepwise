@@ -1,0 +1,12 @@
+# Installed packages — huge, machine-specific, never commit
+node_modules/
+
+# Production build output — generated, not source
+dist/
+
+# Real environment variables — may contain secrets
+.env
+
+# OS junk
+.DS_Store
+Thumbs.db

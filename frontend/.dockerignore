@@ -1,0 +1,15 @@
+# Never copy node_modules — the Dockerfile runs npm ci from scratch.
+node_modules/
+
+# Never copy the built output — the Dockerfile builds it fresh.
+dist/
+
+# Never copy .env — VITE_* values are passed as build args in docker-compose.
+.env
+
+# Test files are not needed in the production image.
+src/__tests__/
+
+# Editor files
+.vscode/
+*.swp
