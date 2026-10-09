@@ -6,11 +6,11 @@ PrepWise analyzes a candidate's resume against a job description and provides an
 
 ## 🚀 Live Demo
 
-**Frontend:** Coming soon — Netlify
-**Backend API:** Coming soon — Render
-**API Documentation:** Available at `/docs` after backend deployment
+* **Frontend:** https://prepwise-frontend-p5b6.onrender.com
+* **Backend API:** https://prepwise-backend-cb6i.onrender.com
+* **API Documentation:** https://prepwise-backend-cb6i.onrender.com/docs
 
-> Deployment is planned using **Netlify + Render + Supabase**.
+**Deployment:** Frontend and backend hosted on Render; authentication and database powered by Supabase; AI analysis powered by Groq.
 
 ---
 
@@ -152,8 +152,8 @@ Authenticated users can:
 | Backend Testing             | pytest                         |
 | Frontend Testing            | Vitest + React Testing Library |
 | Containers                  | Docker + Docker Compose        |
-| Planned Backend Deployment  | Render                         |
-| Planned Frontend Deployment | Netlify                        |
+| Backend Deployment          | Render (Docker)                |
+| Frontend Deployment         | Render                         |
 
 ---
 
@@ -397,12 +397,10 @@ GROQ_MODEL=openai/gpt-oss-20b
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_KEY=your_supabase_api_key
 
-JWKS_CACHE_TTL_SECONDS=3600
-
 RATE_LIMIT_ANALYZE=5/minute
 MAX_UPLOAD_MB=5
 
-ALLOWED_ORIGINS=http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:5173,https://prepwise-frontend-p5b6.onrender.com
 ```
 
 Additional configuration is available in `.env.example`.
@@ -423,7 +421,8 @@ VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-For production, `VITE_API_URL` will point to the deployed Render backend and the frontend CORS configuration will include the deployed Netlify URL.
+For production, set `VITE_API_URL` to `https://prepwise-backend-cb6i.onrender.com` in the Render frontend environment settings. The backend's `ALLOWED_ORIGINS` configuration must include `https://prepwise-frontend-p5b6.onrender.com`.
+
 
 ---
 
@@ -588,50 +587,67 @@ An invalid, unknown, or another user's analysis ID returns `404`.
 
 # 🐳 Docker
 
-The project includes:
+The project includes Docker configuration for the backend and local full-stack development.
 
 ```text
-Dockerfile
+backend/Dockerfile
+frontend/Dockerfile
 docker-compose.yml
 ```
 
-Docker configuration is included for containerized development/deployment.
+**Production deployment:** The FastAPI backend is deployed on Render using Docker.
 
-> Docker has not yet been verified locally on the development machine because hardware virtualization is disabled. The configuration is intended for Linux/cloud environments and should be verified during deployment.
+**Local development:** Docker Compose configuration is included for running the application in containers. Local Docker Compose execution has not been verified on the development machine because hardware virtualization is disabled.
 
----
+The production backend deployment is verified, but local Docker Compose execution should be tested separately.
+
+--
 
 # ☁️ Deployment
 
-PrepWise is planned for deployment using:
+PrepWise is deployed and accessible online.
 
-```text
-Frontend  → Netlify
-Backend   → Render
-Database  → Supabase
-AI        → Groq API
-```
+* **Frontend:** React + Vite, hosted on Render
+* **Backend:** FastAPI, hosted on Render using Docker
+* **Authentication and Database:** Supabase Auth and PostgreSQL
+* **AI Analysis:** Groq API
+
+### Live Deployment URLs
+
+* **Frontend:** https://prepwise-frontend-p5b6.onrender.com
+* **Backend API:** https://prepwise-backend-cb6i.onrender.com
+* **API Documentation:** https://prepwise-backend-cb6i.onrender.com/docs
+
+### Production Environment Configuration
+
+The application uses environment variables to configure API access, authentication, database connectivity, AI integration, upload limits, and rate limiting.
+
+Configure the required environment variables in the relevant Render service settings. Keep secret values, including API keys and JWT secrets, private. Never commit real credentials to GitHub.
+
+For local development, use the project's environment example file and configure your own credentials.
+
 
 ### Production architecture
+
+```text### Production architecture
 
 ```text
                  User
                    │
                    ▼
-              Netlify
-            React Frontend
+                Render
+             React Frontend
                    │
                    │ HTTPS
                    ▼
-               Render
-            FastAPI Backend
+                Render
+             FastAPI Backend
                    │
           ┌────────┴────────┐
           ▼                 ▼
-      Groq API          Supabase
-                         │
-                    PostgreSQL
-                    + Auth + RLS
+      Supabase            Groq API
+   Auth + PostgreSQL    AI Analysis
+
 ```
 
 ### Production environment variables
@@ -646,7 +662,7 @@ SUPABASE_KEY
 ALLOWED_ORIGINS
 ```
 
-The Netlify frontend will require:
+The Render frontend requires the following environment variables:
 
 ```text
 VITE_API_URL
