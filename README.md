@@ -251,23 +251,29 @@ git clone https://github.com/PritiLande/prepwise.git
 cd prepwise
 ```
 
-Create your local environment file:
+### Configure Environment Variables
 
-```bash
-cp .env.example .env
-```
+The project includes environment example files in the `frontend` and `scripts` directories.
 
-On Windows PowerShell:
+For the frontend, create your local environment file:
+
+**Windows PowerShell:**
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item frontend/.env.example frontend/.env
 ```
 
-Add your local API credentials to `.env`.
+**Git Bash or Unix-like terminal:**
 
-**Never commit `.env` to GitHub.**
+```bash
+cp frontend/.env.example frontend/.env
+```
 
----
+Add the required frontend configuration values to `frontend/.env`.
+
+Configure the backend environment variables separately, as described in the Backend Setup and Environment Variables sections.
+
+**Security:** Never commit `.env` files, API keys, or other secrets to GitHub.
 
 # ⚙️ Backend Setup
 
@@ -289,13 +295,9 @@ Activate it on Windows:
 .venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+Before starting the backend, configure the required environment variables for Groq and Supabase. Refer to the Environment Variables section below for the required variable names.
 
-```powershell
-pip install -r requirements.txt
-```
-
-Start the FastAPI server:
+Make sure these variables are available to the backend process when you run the server. Never commit real API keys or credentials to GitHub.
 
 ```powershell
 uvicorn app.main:app --reload
@@ -631,7 +633,6 @@ For local development, use the project's environment example file and configure 
 
 ```text### Production architecture
 
-```text
                  User
                    │
                    ▼
@@ -670,7 +671,7 @@ VITE_SUPABASE_URL
 VITE_SUPABASE_ANON_KEY
 ```
 
-After deployment, the production URLs will be added to this README.
+The production deployment URLs are listed in the Live Deployment URLs section above.
 
 ---
 
