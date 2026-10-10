@@ -14,7 +14,7 @@ SCREENSHOTS: add 2-3 images or a short GIF to docs/screenshots/ and uncomment be
 ## 🚀 Live Demo
 
 - **Frontend:** https://prepwise-frontend-p5b6.onrender.com
-- **Backend API:** https://prepwise-backend-cb6i.onrender.com
+- **Backend health check:** https://prepwise-backend-cb6i.onrender.com/health
 - **API Documentation:** https://prepwise-backend-cb6i.onrender.com/docs
 
 > **Note:** Both services run on Render's free tier, so the first request after a period of inactivity can take 30-60 seconds (cold start). Please give it a moment on first load.
