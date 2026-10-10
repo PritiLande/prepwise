@@ -4,11 +4,16 @@ AI-powered resume and job analysis platform that helps candidates understand the
 
 PrepWise analyzes a candidate's resume against a job description and provides an AI-generated match score, matched skills, skill gaps, resume wording suggestions, and tailored interview questions with answer outlines.
 
-<!--
-SCREENSHOTS: add 2-3 images or a short GIF to docs/screenshots/ and uncomment below.
+▶️ **1-minute demo**   
 
+https://github.com/user-attachments/assets/d8c88227-488b-4bd7-9aa6-fdcbecd9ffd2
+
+<!--
+
+SCREENSHOTS: add 2-3 images or a short GIF to docs/screenshots/ and uncomment below.
 ![PrepWise results page](docs/screenshots/results.png)
 ![PrepWise analysis history](docs/screenshots/history.png)
+
 -->
 
 ## 🚀 Live Demo
